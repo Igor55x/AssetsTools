@@ -1,0 +1,631 @@
+﻿using Mono.Cecil;
+using System.Text.RegularExpressions;
+using AssetsTools.Utils;
+
+namespace AssetsTools
+{
+    public class AssetsManager
+    {
+        public bool updateAfterLoad = true;
+        public bool useTemplateFieldCache = false;
+
+        public ClassDatabaseFile ClassFile;
+        public ClassDatabasePackage ClassPackage;
+
+        public List<AssetsFileInstance> LoadedFiles;
+        public List<BundleFileInstance> LoadedBundles;
+
+        public Dictionary<string, AssetsFileInstance> LoadedFileLookup { get; }
+        public Dictionary<string, BundleFileInstance> LoadedBundleLookup { get; }
+        public Dictionary<string, AssemblyDefinition> LoadedAssemblies { get; }
+
+        private readonly Dictionary<AssetClassID, AssetTypeTemplateField> templateFieldCache;
+        private readonly Dictionary<string, AssetTypeTemplateField> monoTemplateFieldCache;
+
+        public AssetsManager()
+        {
+            LoadedFiles = new List<AssetsFileInstance>();
+            LoadedBundles = new List<BundleFileInstance>();
+            templateFieldCache = new Dictionary<AssetClassID, AssetTypeTemplateField>();
+            monoTemplateFieldCache = new Dictionary<string, AssetTypeTemplateField>();
+        }
+
+        //public void LoadFiles(params string[] files)
+        //{
+        //    var path = Path.GetDirectoryName(Path.GetFullPath(files[0]));
+        //    ImportHelper.MergeSplitAssets(path);
+        //    var processedFiles = ImportHelper.ProcessSplitFiles(files);
+        //    Load(processedFiles);
+        //}
+
+        //public void LoadFolder(string path)
+        //{
+        //    ImportHelper.MergeSplitAssets(path);
+        //    var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+        //    var processedFiles = ImportHelper.ProcessSplitFiles(files);
+        //    Load(processedFiles);
+        //}
+
+        //private void Load(string[] files)
+        //{
+        //    //Progress.Reset(); 
+        //    for (var i = 0; i < files.Length; i++)
+        //    {
+        //        LoadFile(files[i]);
+        //    }
+        //}
+
+        //private void LoadFile(string fullName)
+        //{
+        //    var reader = new FileReader(fullName);
+        //    LoadFile(reader);
+        //}
+
+        //private void LoadFile(FileReader reader)
+        //{
+        //    switch (reader.FileType)
+        //    {
+        //        case FileType.AssetsFile:
+        //            LoadAssetsFile(reader.BaseStream, reader.FullPath, true);
+        //            break;
+        //        case FileType.BundleFile:
+        //            LoadBundleFile(reader.BaseStream, reader.FullPath, false);
+        //            break;
+        //        case FileType.WebFile:
+        //            LoadWebFile(reader);
+        //            break;
+        //        case FileType.GZipFile:
+        //            LoadFile(DecompressGZip(reader));
+        //            break;
+        //        case FileType.BrotliFile:
+        //            LoadFile(DecompressBrotli(reader));
+        //            break;
+        //        case FileType.ZipFile:
+        //            LoadZipFile(reader);
+        //            break;
+        //    }
+        //}
+
+        #region assets files
+        public AssetsFileInstance LoadAssetsFile(Stream stream, string path, bool loadDeps, string root = "", BundleFileInstance bunInst = null)
+        {
+            AssetsFileInstance instance;
+            var index = LoadedFiles.FindIndex(f => string.Equals(f.path, Path.GetFullPath(path), StringComparison.CurrentCultureIgnoreCase));
+            if (index == -1)
+            {
+                instance = new AssetsFileInstance(stream, path, root)
+                {
+                    parentBundle = bunInst
+                };
+                LoadedFiles.Add(instance);
+            }
+            else
+            {
+                instance = LoadedFiles[index];
+            }
+
+            if (loadDeps)
+            {
+                if (bunInst == null)
+                    LoadDependencies(instance, Path.GetDirectoryName(path));
+                else
+                    LoadBundleDependencies(instance, bunInst, Path.GetDirectoryName(path));
+            }
+            if (updateAfterLoad)
+                UpdateDependencies(instance);
+            return instance;
+        }
+
+        public AssetsFileInstance LoadAssetsFile(FileStream stream, bool loadDeps, string root = "")
+        {
+            return LoadAssetsFile(stream, stream.Name, loadDeps, root);
+        }
+
+        public AssetsFileInstance LoadAssetsFile(string path, bool loadDeps, string root = "")
+        {
+            return LoadAssetsFile(File.OpenRead(path), loadDeps, root);
+        }
+
+        public bool UnloadAssetsFile(string path)
+        {
+            var index = LoadedFiles.FindIndex(f => string.Equals(f.path, Path.GetFullPath(path), StringComparison.CurrentCultureIgnoreCase));
+            if (index != -1)
+            {
+                var assetsInst = LoadedFiles[index];
+                assetsInst.file.Close();
+                LoadedFiles.Remove(assetsInst);
+                return true;
+            }
+            return false;
+        }
+
+        public bool UnloadAllAssetsFiles(bool clearCache = false)
+        {
+            if (clearCache)
+            {
+                templateFieldCache.Clear();
+                monoTemplateFieldCache.Clear();
+            }
+
+            if (LoadedFiles.Count != 0)
+            {
+                foreach (var assetsInst in LoadedFiles)
+                {
+                    assetsInst.file.Close();
+                }
+                LoadedFiles.Clear();
+                return true;
+            }
+            return false;
+        }
+
+        public void UnloadAll(bool unloadClassData = false)
+        {
+            UnloadAllAssetsFiles(true);
+            UnloadAllBundleFiles();
+            if (unloadClassData)
+            {
+                ClassPackage = null;
+                ClassFile = null;
+            }
+        }
+        #endregion
+
+        #region bundle files
+        public BundleFileInstance LoadBundleFile(Stream stream, string path, bool unpackIfPacked = true)
+        {
+            BundleFileInstance bunInst;
+            var index = LoadedBundles.FindIndex(f => string.Equals(f.path, path, StringComparison.CurrentCultureIgnoreCase));
+            if (index == -1)
+            {
+                bunInst = new BundleFileInstance(stream, path, "", unpackIfPacked);
+                LoadedBundles.Add(bunInst);
+            }
+            else
+            {
+                bunInst = LoadedBundles[index];
+            }
+            return bunInst;
+        }
+
+        public BundleFileInstance LoadBundleFile(FileStream stream, bool unpackIfPacked = true)
+        {
+            return LoadBundleFile(stream, Path.GetFullPath(stream.Name), unpackIfPacked);
+        }
+
+        public BundleFileInstance LoadBundleFile(string path, bool unpackIfPacked = true)
+        {
+            return LoadBundleFile(File.OpenRead(path), unpackIfPacked);
+        }
+
+        public bool UnloadBundleFile(string path)
+        {
+            var index = LoadedBundles.FindIndex(f => string.Equals(f.path, Path.GetFullPath(path), StringComparison.CurrentCultureIgnoreCase));
+            if (index != -1)
+            {
+                var bunInst = LoadedBundles[index];
+                bunInst.file.Close();
+
+                foreach (var assetsInst in bunInst.loadedAssetsFiles)
+                {
+                    assetsInst.file.Close();
+                }
+
+                LoadedBundles.Remove(bunInst);
+                return true;
+            }
+            return false;
+        }
+
+        public bool UnloadAllBundleFiles()
+        {
+            if (LoadedBundles.Count != 0)
+            {
+                foreach (var bunInst in LoadedBundles)
+                {
+                    bunInst.file.Close();
+
+                    foreach (var assetsInst in bunInst.loadedAssetsFiles)
+                    {
+                        assetsInst.file.Close();
+                    }
+                }
+                LoadedBundles.Clear();
+                return true;
+            }
+            return false;
+        }
+
+        public AssetsFileInstance LoadAssetsFileFromBundle(BundleFileInstance bunInst, int index, bool loadDeps = false)
+        {
+            var assetMemPath = Path.Combine(bunInst.path, bunInst.file.GetFileName(index));
+
+            var listIndex = LoadedFiles.FindIndex(f => string.Equals(f.path, Path.GetFullPath(assetMemPath), StringComparison.CurrentCultureIgnoreCase));
+            if (listIndex == -1)
+            {
+                if (bunInst.file.IsAssetsFile(index))
+                {
+                    bunInst.file.GetFileRange(index, out var offset, out var length);
+                    var ss = new SegmentStream(bunInst.BundleStream, offset, length);
+                    var assetsInst = LoadAssetsFile(ss, assetMemPath, loadDeps, bunInst: bunInst);
+                    bunInst.loadedAssetsFiles.Add(assetsInst);
+                    return assetsInst;
+                }
+            }
+            else
+            {
+                return LoadedFiles[listIndex];
+            }
+            return null;
+        }
+
+        public AssetsFileInstance LoadAssetsFileFromBundle(BundleFileInstance bunInst, string name, bool loadDeps = false)
+        {
+            var index = bunInst.file.GetFileIndex(name);
+            if (index != -1)
+                return LoadAssetsFileFromBundle(bunInst, index, loadDeps);
+
+            return null;
+        }
+        #endregion
+
+        #region dependencies
+        public void UpdateDependencies(AssetsFileInstance ofFile)
+        {
+            var depList = ofFile.file.dependencies;
+            for (var i = 0; i < depList.dependencyCount; i++)
+            {
+                var dep = depList.dependencies[i];
+                var index = LoadedFiles.FindIndex(f => Path.GetFileName(dep.assetPath.ToLower()) == Path.GetFileName(f.path.ToLower()));
+                if (index != -1)
+                {
+                    ofFile.dependencies[i] = LoadedFiles[index];
+                }
+            }
+        }
+
+        public void UpdateDependencies()
+        {
+            for (var i = 0; i < LoadedFiles.Count; i++)
+            {
+                UpdateDependencies(LoadedFiles[i]);
+            }
+        }
+
+        public void LoadDependencies(AssetsFileInstance ofFile, string path)
+        {
+            for (var i = 0; i < ofFile.dependencies.Count; i++)
+            {
+                var depPath = ofFile.file.dependencies.dependencies[i].assetPath;
+
+                if (depPath == string.Empty)
+                {
+                    continue;
+                }
+
+                if (LoadedFiles.FindIndex(f => string.Equals(Path.GetFileName(f.path), Path.GetFileName(depPath), StringComparison.CurrentCultureIgnoreCase)) == -1)
+                {
+                    var absPath = Path.Combine(path, depPath);
+                    var localAbsPath = Path.Combine(path, Path.GetFileName(depPath));
+                    if (File.Exists(absPath))
+                    {
+                        LoadAssetsFile(File.OpenRead(absPath), true);
+                    }
+                    else if (File.Exists(localAbsPath))
+                    {
+                        LoadAssetsFile(File.OpenRead(localAbsPath), true);
+                    }
+                }
+            }
+        }
+
+        public void LoadBundleDependencies(AssetsFileInstance ofFile, BundleFileInstance ofBundle, string path)
+        {
+            for (var i = 0; i < ofFile.dependencies.Count; i++)
+            {
+                var depPath = ofFile.file.dependencies.dependencies[i].assetPath;
+                if (!LoadedFiles.Any(f => string.Equals(Path.GetFileName(f.path), Path.GetFileName(depPath), StringComparison.CurrentCultureIgnoreCase)))
+                {
+                    var bunPath = Path.GetFileName(depPath);
+                    var bunIndex = Array.FindIndex(ofBundle.file.Metadata.DirectoryInfo, d => Path.GetFileName(d.Name) == bunPath);
+
+                    //by default, the directory of an assets file is the bundle's file path (somepath\bundle.unity3d\file.assets)
+                    //we back out again to get the directory the bundle is in
+                    var noBunPath = Path.Combine(path, "..");
+                    var nbAbsPath = Path.Combine(noBunPath, depPath);
+                    var nbLocalAbsPath = Path.Combine(noBunPath, Path.GetFileName(depPath));
+
+                    //if the user chose to set the path to the directory the bundle is in,
+                    //we need to check for that as well
+                    var absPath = Path.Combine(path, depPath);
+                    var localAbsPath = Path.Combine(path, Path.GetFileName(depPath));
+
+                    if (bunIndex != -1)
+                    {
+                        LoadAssetsFileFromBundle(ofBundle, bunIndex, true);
+                    }
+                    else if (File.Exists(absPath))
+                    {
+                        LoadAssetsFile(File.OpenRead(absPath), true);
+                    }
+                    else if (File.Exists(localAbsPath))
+                    {
+                        LoadAssetsFile(File.OpenRead(localAbsPath), true);
+                    }
+                    else if (File.Exists(nbAbsPath))
+                    {
+                        LoadAssetsFile(File.OpenRead(nbAbsPath), true);
+                    }
+                    else if (File.Exists(nbLocalAbsPath))
+                    {
+                        LoadAssetsFile(File.OpenRead(nbLocalAbsPath), true);
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region asset resolving
+        public AssetExternal GetExtAsset(AssetsFileInstance relativeTo, int fileId, long pathId, bool onlyGetInfo = false, bool forceFromCldb = false)
+        {
+            var ext = new AssetExternal
+            {
+                info = null,
+                instance = null,
+                file = null
+            };
+
+            if (fileId == 0 && pathId == 0)
+            {
+                return ext;
+            }
+            else if (fileId != 0)
+            {
+                var dep = relativeTo.GetDependency(this, fileId - 1);
+
+                if (dep == null)
+                    return ext;
+
+                ext.file = dep;
+                ext.info = dep.table.GetAssetInfo(pathId);
+
+                if (ext.info == null)
+                    return ext;
+
+                if (!onlyGetInfo)
+                    ext.instance = GetTypeInstance(dep.file, ext.info, forceFromCldb);
+                else
+                    ext.instance = null;
+
+                return ext;
+            }
+            else
+            {
+                ext.file = relativeTo;
+                ext.info = relativeTo.table.GetAssetInfo(pathId);
+
+                if (ext.info == null)
+                    return ext;
+
+                if (!onlyGetInfo)
+                    ext.instance = GetTypeInstance(relativeTo.file, ext.info, forceFromCldb);
+                else
+                    ext.instance = null;
+
+                return ext;
+            }
+        }
+
+        public AssetExternal GetExtAsset(AssetsFileInstance relativeTo, AssetTypeValueField atvf, bool onlyGetInfo = false, bool forceFromCldb = false)
+        {
+            var fileId = atvf.Get("m_FileID").GetValue().AsInt();
+            var pathId = atvf.Get("m_PathID").GetValue().AsInt64();
+            return GetExtAsset(relativeTo, fileId, pathId, onlyGetInfo, forceFromCldb);
+        }
+
+        public AssetTypeInstance GetTypeInstance(AssetsFileInstance inst, AssetFileInfoEx info, bool forceFromCldb = false)
+        {
+            return GetTypeInstance(inst.file, info, forceFromCldb);
+        }
+
+        public AssetTypeInstance GetTypeInstance(AssetsFile file, AssetFileInfoEx info, bool forceFromCldb = false)
+        {
+            return new AssetTypeInstance(GetTemplateBaseField(file, info, forceFromCldb), file.reader, info.absoluteFilePos);
+        }
+        #endregion
+
+        #region deserialization
+        public AssetTypeTemplateField GetTemplateBaseField(AssetsFile file, AssetFileInfoEx info, bool forceFromCldb = false)
+        {
+            var scriptIndex = AssetHelper.GetScriptIndex(file, info);
+            var fixedId = AssetHelper.FixAudioID(info.curFileType);
+
+            var hasTypeTree = file.typeTree.hasTypeTree;
+            AssetTypeTemplateField baseField;
+            if (useTemplateFieldCache && templateFieldCache.ContainsKey(fixedId))
+            {
+                baseField = templateFieldCache[fixedId];
+            }
+            else
+            {
+                baseField = new AssetTypeTemplateField();
+                if (hasTypeTree && !forceFromCldb)
+                {
+                    baseField.From0D(AssetHelper.FindTypeTreeTypeByID(file.typeTree, fixedId, scriptIndex), 0);
+                }
+                else
+                {
+                    baseField.FromClassDatabase(ClassFile, AssetHelper.FindAssetClassByID(ClassFile, fixedId), 0);
+                }
+
+                if (useTemplateFieldCache)
+                {
+                    templateFieldCache[fixedId] = baseField;
+                }
+            }
+
+            return baseField;
+        }
+
+        public AssetTypeValueField GetMonoBaseFieldCached(AssetsFileInstance inst, AssetFileInfoEx info, string managedPath)
+        {
+            var file = inst.file;
+            var scriptIndex = AssetHelper.GetScriptIndex(file, info);
+            if (scriptIndex == 0xFFFF)
+                return null;
+
+            string scriptName;
+            if (!inst.monoIdToName.ContainsKey(scriptIndex))
+            {
+                var scriptAti = GetExtAsset(inst, GetTypeInstance(inst.file, info).GetBaseField().Get("m_Script")).instance;
+
+                // Couldn't find asset
+                if (scriptAti == null)
+                    return null;
+
+                scriptName = scriptAti.GetBaseField().Get("m_Name").GetValue().AsString();
+                var scriptNamespace = scriptAti.GetBaseField().Get("m_Namespace").GetValue().AsString();
+                var assemblyName = scriptAti.GetBaseField().Get("m_AssemblyName").GetValue().AsString();
+
+                if (scriptNamespace == string.Empty)
+                {
+                    scriptNamespace = "-";
+                }
+
+                scriptName = $"{assemblyName}.{scriptNamespace}.{scriptName}";
+                inst.monoIdToName[scriptIndex] = scriptName;
+            }
+            else
+            {
+                scriptName = inst.monoIdToName[scriptIndex];
+            }
+
+            if (monoTemplateFieldCache.ContainsKey(scriptName))
+            {
+                var baseTemplateField = monoTemplateFieldCache[scriptName];
+                var baseAti = new AssetTypeInstance(baseTemplateField, file.reader, info.absoluteFilePos);
+                return baseAti.GetBaseField();
+            }
+
+            var baseValueField = MonoDeserializer.GetMonoBaseField(this, inst, info, managedPath);
+            monoTemplateFieldCache[scriptName] = baseValueField.TemplateField;
+            return baseValueField;
+        }
+        #endregion
+
+        #region class database
+        public ClassDatabaseFile LoadClassDatabase(Stream stream)
+        {
+            ClassFile = new ClassDatabaseFile();
+            ClassFile.Read(new EndianReader(stream, true));
+            return ClassFile;
+        }
+
+        public ClassDatabaseFile LoadClassDatabase(string path)
+        {
+            return LoadClassDatabase(File.OpenRead(path));
+        }
+
+        public ClassDatabaseFile LoadClassDatabaseFromPackage(string version, bool specific = false)
+        {
+            if (ClassPackage == null)
+                throw new Exception("No class package loaded!");
+
+            if (specific)
+            {
+                if (!version.StartsWith("U"))
+                    version = "U" + version;
+                var index = ClassPackage.header.files.FindIndex(f => f.name == version);
+                if (index == -1)
+                    return null;
+
+                ClassFile = ClassPackage.files[index];
+                return ClassFile;
+            }
+            else
+            {
+                var matchingFiles = new List<ClassDatabaseFile>();
+                var matchingVersions = new List<UnityVersion>();
+
+                if (version.StartsWith("U"))
+                    version = version[1..];
+
+                var versionParsed = new UnityVersion(version);
+
+                for (var i = 0; i < ClassPackage.files.Count; i++)
+                {
+                    var file = ClassPackage.files[i];
+                    for (int j = 0; j < file.header.unityVersions.Length; j++)
+                    {
+                        string unityVersion = file.header.unityVersions[j];
+                        if (version == unityVersion)
+                        {
+                            ClassFile = file;
+                            return ClassFile;
+                        }
+                        else if (WildcardMatches(version, unityVersion))
+                        {
+                            string fullUnityVersion = unityVersion;
+                            if (fullUnityVersion.EndsWith("*"))
+                                fullUnityVersion = file.header.unityVersions[1 - j];
+
+                            matchingFiles.Add(file);
+                            matchingVersions.Add(new UnityVersion(fullUnityVersion));
+                        }
+                    }
+                }
+
+                if (matchingFiles.Count == 1)
+                {
+                    ClassFile = matchingFiles[0];
+                    return ClassFile;
+                }
+                else if (matchingFiles.Count > 0)
+                {
+                    var selectedIndex = 0;
+                    var patchNumToMatch = versionParsed.Build;
+                    var highestMatchingPatchNum = matchingVersions[selectedIndex].Build;
+
+                    for (var i = 1; i < selectedIndex; i++)
+                    {
+                        var thisPatchNum = matchingVersions[selectedIndex].Build;
+                        if (thisPatchNum > highestMatchingPatchNum && thisPatchNum <= patchNumToMatch)
+                        {
+                            selectedIndex = i;
+                            highestMatchingPatchNum = thisPatchNum;
+                        }
+                    }
+
+                    ClassFile = matchingFiles[selectedIndex];
+                    return ClassFile;
+                }
+                return null;
+            }
+        }
+
+        private static bool WildcardMatches(string test, string pattern)
+        {
+            return Regex.IsMatch(test, "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$");
+        }
+
+        public ClassDatabasePackage LoadClassPackage(Stream stream)
+        {
+            ClassPackage = new ClassDatabasePackage();
+            ClassPackage.Read(new EndianReader(stream, true));
+            return ClassPackage;
+        }
+
+        public ClassDatabasePackage LoadClassPackage(string path)
+        {
+            return LoadClassPackage(File.OpenRead(path));
+        }
+        #endregion
+    }
+
+    public struct AssetExternal
+    {
+        public AssetFileInfoEx info;
+        public AssetTypeInstance instance;
+        public AssetsFileInstance file;
+    }
+}

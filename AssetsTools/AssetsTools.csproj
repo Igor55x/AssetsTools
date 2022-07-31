@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Authors>Igor55</Authors>
+  </PropertyGroup>
+  
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>1.0.0</Version>
+    <Copyright>Copyright (c) 2022 Igor55</Copyright>
+	<PackageId>AssetsToοls</PackageId>
+    <Description>A C# library for reading/modifying unity .assets and AssetBundle files based on the AssetsTools library from UABE.</Description>
+    <PackageProjectUrl>https://github.com/Igor55x/AssetsTools</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Igor55x/AssetsTools</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="" />
+	<None Include="..\LICENSE.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="EndianIO" Version="1.0.5" />
+    <PackageReference Include="K4os.Compression.LZ4" Version="1.2.16" />
+    <PackageReference Include="SharpCompress" Version="0.32.2" />
+    <PackageReference Include="Mono.Cecil" Version="0.11.4" />
+  </ItemGroup>
+
+</Project>
