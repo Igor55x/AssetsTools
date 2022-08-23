@@ -12,7 +12,7 @@
         public bool fromStringTable;
         public string GetString(ClassDatabaseFile file)
         {
-            return fromStringTable ? EndianReader.ReadNullTerminatedArray(file.stringTable, str.stringTableOffset) : str.@string;
+            return fromStringTable ? EndianReader.ReadNullTerminatedArray(file.stringTable, (int)str.stringTableOffset) : str.@string;
         }
 
         public void Read(EndianReader reader)

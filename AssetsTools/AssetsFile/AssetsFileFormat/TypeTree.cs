@@ -10,7 +10,7 @@
         public List<Type_0D> unity5Types;
         public List<Type_07> unity4Types;
 
-        public uint bigIDEnabled;
+        public UInt24 bigIDEnabled;
 
         public void Read(EndianReader reader, uint version)
         {
@@ -71,7 +71,7 @@
             }
             if (version < 0x0E)
             {
-                writer.WriteUInt24(bigIDEnabled);
+                writer.Write(bigIDEnabled);
             }
         }
     }
