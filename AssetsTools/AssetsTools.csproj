@@ -10,7 +10,7 @@
   
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Copyright>Copyright (c) 2022 Igor55</Copyright>
 	<PackageId>AssetsToοls</PackageId>
     <Description>A C# library for reading/modifying unity .assets and AssetBundle files based on the AssetsTools library from UABE.</Description>

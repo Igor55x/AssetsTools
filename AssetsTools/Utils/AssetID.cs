@@ -3,26 +3,26 @@
     public class AssetID
     {
         public string FileName;
-        public AssetPPtr PPtr;
+        public long PathID;
 
-        public AssetID(string fileName, AssetPPtr pptr)
+        public AssetID(string fileName, long pathId)
         {
             FileName = fileName;
-            PPtr = pptr;
+            PathID = pathId;
         }
 
         public override bool Equals(object obj)
         {
             if (obj is AssetID cobj)
             {
-                return cobj.FileName == FileName && cobj.PPtr == PPtr;
+                return cobj.FileName == FileName && cobj.PathID == PathID;
             }
             return false;
         }
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(FileName, PPtr);
+            return HashCode.Combine(FileName, PathID);
         }
     }
 }
