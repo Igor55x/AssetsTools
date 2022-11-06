@@ -2,7 +2,6 @@
 {
     public class AssetsFileTable
     {
-        public AssetsFile File;
         public EndianReader Reader;
         public Stream ReaderPar;
 
@@ -13,7 +12,6 @@
         
         public AssetsFileTable(AssetsFile file)
         {
-            File = file;
             Reader = file.reader;
             ReaderPar = file.readerPar;
             Reader.SetEndianness(file.header.Endianness);

@@ -141,9 +141,7 @@
         //usually you have to cd to the assets file
         public byte[] GetTextureData() => GetTextureData(Directory.GetCurrentDirectory());
 
-        //new functions since I didn't like the way unitytools handled it
-        public byte[] GetTextureData(AssetsFileInstance inst) => GetTextureData(Path.GetDirectoryName(inst.path));
-
+        //new functions since I didn't like the way assetstools handled it
         public byte[] GetTextureData(AssetsFile file)
         {
             string path = null;

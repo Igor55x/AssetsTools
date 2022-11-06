@@ -18,10 +18,17 @@ namespace AssetsTools
         public uint AssetTablePos;
         public uint AssetCount;
 
+        public AssetFileInfoEx[] Info;
+        private Dictionary<long, int> LookupBase;
+
         public EndianReader reader;
         public Stream readerPar;
 
-        public AssetsFile(EndianReader reader)
+        public string Path;
+
+        public void Close() => readerPar.Dispose();
+
+        public AssetsFile(EndianReader reader, string path = null)
         {
             this.reader = reader;
             readerPar = reader.BaseStream;
@@ -36,17 +43,41 @@ namespace AssetsTools
             reader.Align();
             AssetTablePos = (uint)reader.Position;
 
-            var assetInfoSize = AssetFileInfo.GetSize(header.Version);
-            if (0x0F <= header.Version && header.Version <= 0x10)
+            Info = new AssetFileInfoEx[AssetCount];
+            for (var i = 0; i < AssetCount; i++)
             {
-                //for these two versions, the asset info is not aligned
-                //for the last entry, so we have to do some weird stuff
-                reader.Position += ((assetInfoSize + 3) >> 2 << 2) * (AssetCount - 1) + assetInfoSize;
+                var assetFileInfoSet = new AssetFileInfoEx();
+                assetFileInfoSet.Read(header.Version, reader);
+                assetFileInfoSet.absoluteFilePos = header.DataOffset + assetFileInfoSet.curFileOffset;
+                if (header.Version < 0x10)
+                {
+                    if (assetFileInfoSet.curFileTypeOrIndex < 0)
+                    {
+                        assetFileInfoSet.curFileType = AssetClassID.MonoBehaviour;
+                    }
+                    else
+                    {
+                        assetFileInfoSet.curFileType = (AssetClassID)assetFileInfoSet.curFileTypeOrIndex;
+                    }
+                }
+                else
+                {
+                    assetFileInfoSet.curFileType = typeTree.unity5Types[assetFileInfoSet.curFileTypeOrIndex].ClassID;
+                }
+                Info[i] = assetFileInfoSet;
             }
-            else
-            {
-                reader.Position += assetInfoSize * AssetCount;
-            }
+
+            //var assetInfoSize = AssetFileInfo.GetSize(header.Version);
+            //if (0x0F <= header.Version && header.Version <= 0x10)
+            //{
+            //    //for these two versions, the asset info is not aligned
+            //    //for the last entry, so we have to do some weird stuff
+            //    reader.Position += ((assetInfoSize + 3) >> 2 << 2) * (AssetCount - 1) + assetInfoSize;
+            //}
+            //else
+            //{
+            //    reader.Position += assetInfoSize * AssetCount;
+            //}
             if (header.Version > 0x0B)
             {
                 preloadTable = new PreloadList();
@@ -55,9 +86,59 @@ namespace AssetsTools
 
             dependencies = new AssetsFileDependencyList();
             dependencies.Read(reader);
+
+            if (path != null)
+            {
+                Path = path;
+            }
+            else
+            {
+                if (reader.BaseStream is FileStream fs)
+                {
+                    Path = fs.Name;
+                }
+                else
+                {
+                    throw new ArgumentException("Path must be filled out or the reader's stream must be a FileStream.");
+                }
+            }
         }
-        
-        public void Close() => readerPar.Dispose();
+
+        public AssetsFile(Stream stream, string path = null) : this(new EndianReader(stream), path)
+        {
+        }
+
+        public AssetFileInfoEx GetAssetInfo(long pathId)
+        {
+            if (LookupBase != null)
+            {
+                if (LookupBase.ContainsKey(pathId))
+                {
+                    return Info[LookupBase[pathId]];
+                }
+            }
+            else
+            {
+                foreach (var info in Info)
+                {
+                    if (info.index == pathId)
+                    {
+                        return info;
+                    }
+                }
+            }
+            return null;
+        }
+
+        public void GenerateQuickLookupTree()
+        {
+            LookupBase = new Dictionary<long, int>();
+            for (var i = 0; i < Info.Length; i++)
+            {
+                var info = Info[i];
+                LookupBase[info.index] = i;
+            }
+        }
 
         public void Write(EndianWriter writer, List<AssetsReplacer> replacers, long filePos, ClassDatabaseFile typeMeta = null)
         {
@@ -86,9 +167,7 @@ namespace AssetsTools
                         }
                     }
 
-                    if (type == null)
-                    {
-                        type = new Type_0D
+                    type ??= new Type_0D
                         {
                             ClassID = replacerClassId,
                             IsStrippedType = false,
@@ -98,7 +177,6 @@ namespace AssetsTools
                             stringTableLen = 0,
                             stringTable = ""
                         };
-                    }
 
                     typeTree.unity5Types.Add(type);
                 }

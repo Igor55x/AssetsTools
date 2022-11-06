@@ -114,47 +114,5 @@ namespace AssetsTools
             }
             return null;
         }
-
-        public static void UnpackInfoOnly(this AssetBundleFile bundle)
-        {
-            var reader = bundle.Reader;
-
-            reader.Position = 0;
-            if (!bundle.Read(reader, true))
-                return;
-
-            reader.Position = bundle.Header.GetBundleInfoOffset();
-            var blocksInfoStream = new MemoryStream();
-            var compressedSize = (int)bundle.Header.CompressedSize;
-            var compressedBlock = reader.ReadBytes(compressedSize);
-            var decompressedSize = (int)bundle.Header.DecompressedSize;
-            switch (bundle.Header.GetCompressionType())
-            {
-                case AssetBundleCompressionType.Lzma:
-                    {
-                        using var ms = new MemoryStream(compressedBlock);
-                        LzmaHelper.DecompressStream(ms, blocksInfoStream, decompressedSize);
-                        break;
-                    }
-                case AssetBundleCompressionType.Lz4:
-                case AssetBundleCompressionType.Lz4HC:
-                    {
-                        var decompressedBlock = Lz4Helper.Decompress(compressedBlock, decompressedSize);
-                        blocksInfoStream = new MemoryStream(decompressedBlock);
-                        break;
-                    }
-                default:
-                    blocksInfoStream = null;
-                    break;
-            }
-            if (bundle.Header.GetCompressionType() != 0)
-            {
-                using var memReader = new EndianReader(blocksInfoStream, true)
-                {
-                    Position = 0
-                };
-                bundle.Metadata.Read(bundle.Header, memReader);
-            }
-        }
     }
 }

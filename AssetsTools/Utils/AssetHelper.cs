@@ -205,13 +205,13 @@
             return string.Empty;
         }
 
-        public static AssetFileInfoEx GetAssetInfo(this AssetsFileTable table, string name, bool caseSensitive = true)
+        public static AssetFileInfoEx GetAssetInfo(this AssetsFile file, string name, bool caseSensitive = true)
         {
             if (!caseSensitive)
                 name = name.ToLower();
-            foreach (var info in table.Info)
+            foreach (var info in file.Info)
             {
-                var infoName = GetAssetNameFastNative(table.File, info);
+                var infoName = GetAssetNameFastNative(file, info);
                 if (!caseSensitive)
                     infoName = infoName.ToLower();
                 if (infoName == name)
@@ -222,13 +222,13 @@
             return null;
         }
 
-        public static AssetFileInfoEx GetAssetInfo(this AssetsFileTable table, string name, AssetClassID typeId, bool caseSensitive = true)
+        public static AssetFileInfoEx GetAssetInfo(this AssetsFile file, string name, AssetClassID typeId, bool caseSensitive = true)
         {
             if (!caseSensitive)
                 name = name.ToLower();
-            foreach (var info in table.Info)
+            foreach (var info in file.Info)
             {
-                var infoName = GetAssetNameFastNative(table.File, info);
+                var infoName = GetAssetNameFastNative(file, info);
                 if (!caseSensitive)
                     infoName = infoName.ToLower();
                 if (info.curFileType == typeId && infoName == name)
@@ -239,13 +239,13 @@
             return null;
         }
 
-        public static AssetFileInfoEx GetAssetInfo(this AssetsFileTable table, string name, long pathId, bool caseSensitive = true)
+        public static AssetFileInfoEx GetAssetInfo(this AssetsFile file, string name, long pathId, bool caseSensitive = true)
         {
             if (!caseSensitive)
                 name = name.ToLower();
-            foreach (var info in table.Info)
+            foreach (var info in file.Info)
             {
-                var infoName = GetAssetNameFastNative(table.File, info);
+                var infoName = GetAssetNameFastNative(file, info);
                 if (!caseSensitive)
                     infoName = infoName.ToLower();
                 if (info.index == pathId && infoName == name)
@@ -256,10 +256,10 @@
             return null;
         }
 
-        public static List<AssetFileInfoEx> GetAssetsOfType(this AssetsFileTable table, AssetClassID typeId)
+        public static List<AssetFileInfoEx> GetAssetsOfType(this AssetsFile file, AssetClassID typeId)
         {
             var infos = new List<AssetFileInfoEx>();
-            foreach (var info in table.Info)
+            foreach (var info in file.Info)
             {
                 if (info.curFileType == typeId)
                 {

@@ -33,19 +33,18 @@ namespace AssetsTools
             return AssemblyDefinition.ReadAssembly(File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read), readerParameters);
         }
 
-        public static AssetTypeValueField GetMonoBaseField(AssetsManager am, AssetsFileInstance inst, AssetFileInfoEx info, string managedPath, bool cached = true)
+        public static AssetTypeValueField GetMonoBaseField(AssetsManager am, AssetsFile file, AssetFileInfoEx info, string managedPath, bool cached = true)
         {
-            var file = inst.file;
             var baseField = new AssetTypeTemplateField();
             baseField.FromClassDatabase(am.ClassFile, AssetHelper.FindAssetClassByID(am.ClassFile, info.curFileType));
             var mainAti = new AssetTypeInstance(baseField, file.reader, info.absoluteFilePos);
             var scriptIndex = AssetHelper.GetScriptIndex(file, info);
             if (scriptIndex != 0xFFFF)
             {
-                var scriptAti = am.GetExtAsset(inst, mainAti.GetBaseField().Get("m_Script")).instance;
-                var scriptName = scriptAti.GetBaseField().Get("m_ClassName").GetValue().AsString();
-                var scriptNamespace = scriptAti.GetBaseField().Get("m_Namespace").GetValue().AsString();
-                var assemblyName = scriptAti.GetBaseField().Get("m_AssemblyName").GetValue().AsString();
+                var scriptField = am.GetExternal(file, mainAti.GetBaseField().Get("m_Script")).baseField;
+                var scriptName = scriptField.Get("m_ClassName").GetValue().AsString();
+                var scriptNamespace = scriptField.Get("m_Namespace").GetValue().AsString();
+                var assemblyName = scriptField.Get("m_AssemblyName").GetValue().AsString();
                 var assemblyPath = Path.Combine(managedPath, assemblyName);
 
                 if (scriptNamespace != string.Empty)
@@ -68,7 +67,7 @@ namespace AssetsTools
                     }
 
                     var mc = new MonoDeserializer();
-                    mc.Read(scriptName, asmDef, new UnityVersion(inst.file.typeTree.unityVersion));
+                    mc.Read(scriptName, asmDef, new UnityVersion(file.typeTree.unityVersion));
                     var monoTemplateFields = mc.children;
 
                     baseField.AddChildren(monoTemplateFields);

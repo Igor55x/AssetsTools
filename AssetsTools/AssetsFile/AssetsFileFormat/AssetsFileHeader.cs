@@ -48,6 +48,7 @@
 
         public void Read(EndianReader reader)
         {
+            reader.SetEndianness(true);
             MetadataSize = reader.ReadUInt32();
             FileSize = reader.ReadUInt32();
             Version = reader.ReadUInt32();

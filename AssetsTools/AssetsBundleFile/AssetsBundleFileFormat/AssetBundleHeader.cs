@@ -207,7 +207,7 @@
                 if (IsOldWebPluginCompatibility())
                     return ((ret + 0x0A) + 15) >> 4 << 4;
 
-                return ((ret + Signature.ToString().Length + 1) + 15) >> 4 << 4;
+                return (ret + Signature.ToString().Length + 1 + 15) >> 4 << 4;
             }
 
             if (IsOldWebPluginCompatibility())

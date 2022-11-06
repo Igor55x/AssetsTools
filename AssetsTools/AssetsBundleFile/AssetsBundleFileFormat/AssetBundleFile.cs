@@ -10,25 +10,48 @@ namespace AssetsTools
 
         public EndianReader Reader;
 
+        public string Path;
+
         public void Close() => Reader.Close();
 
-        public bool Read(EndianReader reader, bool allowCompressed = false)
+        public bool Read(EndianReader reader, string path = null)
         {
             Reader = reader;
             Header = new AssetBundleHeader();
             Header.Read(Reader);
-            Metadata = new AssetBundleMetadata();
 
-            if (Header.GetCompressionType() != 0)
+            //if (Header.GetCompressionType() != 0)
+            //{
+            //    if (allowCompressed)
+            //        return true;
+
+            //    Close();
+            //    return false;
+            //}
+            if (Header.Signature is AssetBundleType.UnityFS)
             {
-                if (allowCompressed)
-                    return true;
-
-                Close();
-                return false;
+                UnpackInfoOnly();
             }
-            reader.Position = Header.GetBundleInfoOffset();
-            Metadata.Read(Header, reader);
+            else
+            {
+                throw new NotImplementedException("Non UnityFS bundles are not supported yet.");
+            }
+
+            if (path != null)
+            {
+                Path = path;
+            }
+            else
+            {
+                if (reader.BaseStream is FileStream fs)
+                {
+                    Path = fs.Name;
+                }
+                else
+                {
+                    throw new ArgumentException("Path must be filled out or the reader's stream must be a FileStream.");
+                }
+            }
             return true;
         }
 
@@ -209,7 +232,7 @@ namespace AssetsTools
         public bool Unpack(EndianReader reader, EndianWriter writer)
         {
             reader.Position = 0;
-            if (Read(reader, true))
+            if (Read(reader))
             {
                 reader.Position = Header.GetBundleInfoOffset();
                 var blocksInfoStream = new MemoryStream();
@@ -521,6 +544,50 @@ namespace AssetsTools
             }
         }
 
+        public void UnpackInfoOnly()
+        {
+            // todo, exceptions
+            Reader.Position = Header.GetBundleInfoOffset();
+            if (Header.GetCompressionType() == 0)
+            {
+                Metadata = new AssetBundleMetadata();
+                Metadata.Read(Header, Reader);
+                return;
+            }
+            var blocksInfoStream = new MemoryStream();
+            var compressedSize = (int)Header.CompressedSize;
+            var compressedBlock = Reader.ReadBytes(compressedSize);
+            var decompressedSize = (int)Header.DecompressedSize;
+            switch (Header.GetCompressionType())
+            {
+                case AssetBundleCompressionType.Lzma:
+                    {
+                        using var ms = new MemoryStream(compressedBlock);
+                        LzmaHelper.DecompressStream(ms, blocksInfoStream, decompressedSize);
+                        break;
+                    }
+                case AssetBundleCompressionType.Lz4:
+                case AssetBundleCompressionType.Lz4HC:
+                    {
+                        var decompressedBlock = Lz4Helper.Decompress(compressedBlock, decompressedSize);
+                        blocksInfoStream = new MemoryStream(decompressedBlock);
+                        break;
+                    }
+                default:
+                    {
+                        blocksInfoStream = null;
+                        break;
+                    }
+            }
+
+            using var memReader = new EndianReader(blocksInfoStream, true)
+            {
+                Position = 0
+            };
+            Metadata = new AssetBundleMetadata();
+            Metadata.Read(Header, memReader);
+        }
+
         public bool IsAssetsFile(int index)
         {
             GetFileRange(index, out var offset, out var length);
@@ -569,7 +636,7 @@ namespace AssetsTools
 
         private FileStream GetTempFileStream()
         {
-            var tempFilePath = Path.GetTempFileName();
+            var tempFilePath = System.IO.Path.GetTempFileName();
             var tempFileStream = new FileStream(tempFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, 4096, FileOptions.DeleteOnClose);
             return tempFileStream;
         }
